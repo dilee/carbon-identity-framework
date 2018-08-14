@@ -33,10 +33,11 @@ import org.wso2.carbon.identity.application.common.model.InboundAuthenticationRe
 import org.wso2.carbon.identity.application.common.model.PermissionsAndRoleConfig;
 import org.wso2.carbon.identity.application.common.model.Property;
 import org.wso2.carbon.identity.application.common.model.ServiceProvider;
+import org.wso2.carbon.identity.application.common.model.SpFileStream;
 import org.wso2.carbon.identity.application.mgt.dao.ApplicationDAO;
-import org.wso2.carbon.identity.application.mgt.internal.ApplicationManagementServiceComponent;
 import org.wso2.carbon.identity.application.mgt.internal.ApplicationManagementServiceComponentHolder;
 import org.wso2.carbon.identity.core.util.IdentityTenantUtil;
+import org.wso2.carbon.identity.core.util.IdentityUtil;
 import org.wso2.carbon.registry.api.Collection;
 import org.wso2.carbon.registry.api.Registry;
 import org.wso2.carbon.registry.api.RegistryException;
@@ -59,12 +60,14 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
+import javax.xml.bind.JAXBContext;
+import javax.xml.bind.JAXBException;
+import javax.xml.bind.Unmarshaller;
 
 public class ApplicationMgtUtil {
 
     public static final String APPLICATION_ROOT_PERMISSION = "applications";
     public static final String PATH_CONSTANT = RegistryConstants.PATH_SEPARATOR;
-    public static final String PERMISSION_APPLICATION_MGT = "/permission/admin/manage/identity/applicationmgt";
     private static final List<String> paths = new ArrayList<String>();
     private static String applicationNode;
     // Regex for validating application name
@@ -119,7 +122,7 @@ public class ApplicationMgtUtil {
         try {
             if (log.isDebugEnabled()) {
                 log.debug("Checking whether user has role : " + applicationRoleName + " by retrieving role list of " +
-                          "user : " + username);
+                        "user : " + username);
             }
 
             UserStoreManager userStoreManager = CarbonContext.getThreadLocalCarbonContext().getUserRealm()
@@ -157,7 +160,7 @@ public class ApplicationMgtUtil {
             // create a role for the application and assign the user to that role.
             if (log.isDebugEnabled()) {
                 log.debug("Creating application role : " + roleName + " and assign the user : "
-                          + Arrays.toString(usernames) + " to that role");
+                        + Arrays.toString(usernames) + " to that role");
             }
             CarbonContext.getThreadLocalCarbonContext().getUserRealm().getUserStoreManager()
                     .addRole(roleName, usernames, null);
@@ -528,8 +531,8 @@ public class ApplicationMgtUtil {
     /**
      * Get Property values
      *
-     * @param tenantDomain Tenant domain
-     * @param spIssuer SP Issuer
+     * @param tenantDomain  Tenant domain
+     * @param spIssuer      SP Issuer
      * @param propertyNames Property names
      * @return Properties map
      * @throws IdentityApplicationManagementException
@@ -571,7 +574,7 @@ public class ApplicationMgtUtil {
      * @return true if the application owner is valid.
      * @throws IdentityApplicationManagementException when an error occurs while validating the user.
      */
-    public static boolean isValidAppicationOwner(ServiceProvider serviceProvider) throws IdentityApplicationManagementException {
+    public static boolean isValidApplicationOwner(ServiceProvider serviceProvider) throws IdentityApplicationManagementException {
 
         try {
             String userName = null;
@@ -582,10 +585,10 @@ public class ApplicationMgtUtil {
                     return false;
                 }
                 String userStoreDomain = serviceProvider.getOwner().getUserStoreDomain();
-                userNameWithDomain = UserCoreUtil.addDomainToName(userName, userStoreDomain);
+                userNameWithDomain = IdentityUtil.addDomainToName(userName, userStoreDomain);
             }
             org.wso2.carbon.user.api.UserRealm realm = CarbonContext.getThreadLocalCarbonContext().getUserRealm();
-            if (realm == null) {
+            if (realm == null || StringUtils.isEmpty(userNameWithDomain)) {
                 return false;
             }
             boolean isUserExist = realm.getUserStoreManager().isExistingUser(userNameWithDomain);
@@ -593,17 +596,32 @@ public class ApplicationMgtUtil {
                 throw new IdentityApplicationManagementException("User validation failed for owner update in the application: " +
                         serviceProvider.getApplicationName() + " as user is not existing.");
             }
-
-            boolean isPermitted = realm.getAuthorizationManager().isUserAuthorized(userName, PERMISSION_APPLICATION_MGT,
-                    UserMgtConstants.EXECUTE_ACTION);
-            if (!isPermitted) {
-                throw new IdentityApplicationManagementException("User validation failed for owner update in the application: " +
-                        serviceProvider.getApplicationName() + " as the user does not have required permissions.");
-            }
         } catch (UserStoreException | IdentityApplicationManagementException e) {
             throw new IdentityApplicationManagementException("User validation failed for owner update in the application: " +
                     serviceProvider.getApplicationName(), e);
         }
         return true;
+    }
+
+    /**
+     * Get Service provider name from XML configuration file
+     *
+     * @param spFileStream
+     * @param tenantDomain
+     * @return ServiceProvider
+     * @throws IdentityApplicationManagementException
+     */
+    public static ServiceProvider getApplicationFromSpFileStream(SpFileStream spFileStream, String tenantDomain)
+            throws IdentityApplicationManagementException {
+
+        try {
+            JAXBContext jaxbContext = JAXBContext.newInstance(ServiceProvider.class);
+            Unmarshaller unmarshaller = jaxbContext.createUnmarshaller();
+            return (ServiceProvider) unmarshaller.unmarshal(spFileStream.getFileStream());
+
+        } catch (JAXBException e) {
+            throw new IdentityApplicationManagementException(String.format("Error in reading Service Provider " +
+                    "configuration file %s uploaded by tenant: %s", spFileStream.getFileName(), tenantDomain), e);
+        }
     }
 }
